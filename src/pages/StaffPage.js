@@ -211,13 +211,13 @@ function BatchView({ batchId, isDirecteur, onSelectCandidate, onBatchUpdate }) {
   }
   async function handleArchive() {
     if (!isDirecteur) return;
-    if (!window.confirm('Clôturer et archiver ce batch ? Action irréversible.')) return;
+    if (!window.confirm("Clôturer et archiver ce batch ? Action irréversible.")) return;
     await updateBatch(batchId, { status: 'archived', finished_at: new Date().toISOString() });
     load();
   }
 
   async function handleEndExam() {
-    if (!window.confirm('Terminer l'examen maintenant ? Tous les candidats encore en train de passer seront arrêtés.')) return;
+    if (!window.confirm("Terminer l'examen ? Les candidats en cours seront arretes.")) return;
     for (const c of candidates.filter(c => c.status === 'exam')) {
       await updateCandidate(c.id, { status: 'finished', exam_finished_at: new Date().toISOString() });
     }
@@ -226,7 +226,7 @@ function BatchView({ batchId, isDirecteur, onSelectCandidate, onBatchUpdate }) {
   }
 
   async function handleDeleteBatch() {
-    if (!window.confirm('Supprimer définitivement ce batch ?')) return;
+    if (!window.confirm("Supprimer définitivement ce batch ?")) return;
     await deleteBatch(batchId);
     window.location.reload();
   }
