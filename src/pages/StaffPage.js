@@ -447,8 +447,7 @@ function CandidateProfile({ profile, isDirecteur, onRefresh }) {
       lines.push('Non evaluee');
     }
     
-    const text = lines.join('
-');
+    const text = lines.join('\n');
     const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
