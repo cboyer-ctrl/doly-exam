@@ -244,16 +244,14 @@ function BatchView({ batchId, isDirecteur, onSelectCandidate, onBatchUpdate }) {
             <span style={{ color: 'var(--text-muted)', fontSize: '13px' }}>{candidates.length} candidat{candidates.length !== 1 ? 's' : ''}</span>
           </div>
         </div>
-        {!isArchived && (
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            {isPending && <button className="btn btn-primary" onClick={handleLaunch}>▶ Lancer l'examen</button>}
-            {isActive && isDirecteur && <button className="btn btn-secondary" onClick={handlePause}>⏸ Pause</button>}
-            {isPaused && isDirecteur && <button className="btn btn-primary" onClick={handleResume}>▶ Reprendre</button>}
-            {isActive && <button className="btn btn-danger" onClick={handleEndExam}>⏹ Terminer l'examen</button>}
-            {isDirecteur && isPaused && <button className="btn btn-danger" onClick={handleArchive}>🗄 Clôturer le batch</button>}
-            {isDirecteur && isPending && <button className="btn btn-danger btn-sm" onClick={handleDeleteBatch}>🗑 Supprimer</button>}
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+            {!isArchived && isPending && <button className="btn btn-primary" onClick={handleLaunch}>▶ Lancer l'examen</button>}
+            {!isArchived && isActive && isDirecteur && <button className="btn btn-secondary" onClick={handlePause}>⏸ Pause</button>}
+            {!isArchived && isPaused && isDirecteur && <button className="btn btn-primary" onClick={handleResume}>▶ Reprendre</button>}
+            {!isArchived && isActive && <button className="btn btn-danger" onClick={handleEndExam}>⏹ Terminer l'examen</button>}
+            {isDirecteur && !isArchived && isPaused && <button className="btn btn-danger" onClick={handleArchive}>🗄 Cloturer le batch</button>}
+            {isDirecteur && (isPending || isArchived) && <button className="btn btn-danger btn-sm" onClick={handleDeleteBatch}>🗑 Supprimer</button>}
           </div>
-        )}
       </div>
 
       {/* Stats row */}
@@ -390,71 +388,272 @@ function CandidateProfile({ profile, isDirecteur, onRefresh }) {
   const openQMap = Object.fromEntries(OPEN_QUESTIONS.map(q => [q.id, q]));
 
   function downloadPDF(cand, sc, qcmA, openA, practEval, qMap, oMap, infracs) {
-    const lines = [];
-    const d = new Date();
-    const dateStr = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-    
-    lines.push('DOLY - RAPPORT D EVALUATION');
-    lines.push('===========================');
-    lines.push('');
-    lines.push('CANDIDAT : ' + cand.first_name + ' ' + cand.last_name);
-    lines.push('Date : ' + dateStr);
-    lines.push('Statut : ' + (cand.validated === true ? 'VALIDE' : 'NON VALIDE'));
-    lines.push('');
-    lines.push('SCORES');
-    lines.push('------');
-    lines.push('QCM (coef 1)              : ' + sc.qcmScore + '/20');
-    lines.push('Questions ouvertes (coef 2): ' + sc.openScore + '/20');
-    lines.push('Mise en situation (coef 3) : ' + sc.practicalScore + '/30');
-    lines.push('TOTAL                      : ' + sc.total + '/70');
-    lines.push('Seuil (42/70)              : ' + (sc.passed ? 'ATTEINT' : 'NON ATTEINT'));
-    lines.push('');
-    if (infracs.length > 0) {
-      lines.push('INFRACTIONS (' + infracs.length + ')');
-      lines.push('-----------');
-      infracs.forEach(inf => {
-        const t = inf.type === 'tab_switch' ? 'Changement onglet' : inf.type === 'fullscreen_exit' ? 'Sortie plein ecran' : 'Perte focus';
-        lines.push('- ' + t + ' a ' + new Date(inf.occurred_at).toLocaleTimeString('fr-FR'));
+    // Load jsPDF dynamically
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+    script.onload = () => {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+      const W = 210; const H = 297;
+      const YELLOW = [255, 209, 0];
+      const BLACK = [0, 0, 0];
+      const WHITE = [255, 255, 255];
+      const DARK = [26, 26, 26];
+      const GREY = [245, 245, 245];
+      const GREY_TEXT = [136, 136, 136];
+      const GREEN = [34, 197, 94];
+      const RED = [239, 68, 68];
+      let y = 0;
+
+      // ── HEADER BAND ──
+      doc.setFillColor(...BLACK);
+      doc.rect(0, 0, W, 28, 'F');
+      doc.setTextColor(...YELLOW);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(20);
+      doc.text('DOLY', 14, 13);
+      doc.setFontSize(9);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(...GREY_TEXT);
+      doc.text('RAPPORT D'EVALUATION', 14, 20);
+      // Date top right
+      const dateStr = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      doc.setFontSize(9);
+      doc.text(dateStr, W - 14, 13, { align: 'right' });
+      // Validated status badge
+      const isValid = cand.validated === true;
+      doc.setFillColor(...(isValid ? GREEN : RED));
+      doc.roundedRect(W - 50, 17, 36, 7, 2, 2, 'F');
+      doc.setTextColor(...WHITE);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.text(isValid ? 'VALIDE' : 'NON VALIDE', W - 32, 22.5, { align: 'center' });
+      y = 38;
+
+      // ── CANDIDATE INFO ──
+      doc.setFillColor(...GREY);
+      doc.rect(0, y - 4, W, 22, 'F');
+      doc.setTextColor(...DARK);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(16);
+      doc.text(cand.first_name + ' ' + cand.last_name, 14, y + 6);
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9);
+      doc.setTextColor(...GREY_TEXT);
+      if (cand.exam_started_at) {
+        const start = new Date(cand.exam_started_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        const end = cand.exam_finished_at ? new Date(cand.exam_finished_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '-';
+        doc.text('Examen : ' + start + ' → ' + end, 14, y + 13);
+      }
+      if (infracs.length > 0) {
+        doc.setTextColor(239, 68, 68);
+        doc.text('⚠ ' + infracs.length + ' infraction(s) detectee(s)', 130, y + 13);
+      }
+      y += 28;
+
+      // ── SCORES BAND ──
+      doc.setFillColor(...YELLOW);
+      doc.rect(0, y, W, 8, 'F');
+      doc.setTextColor(...BLACK);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.text('RESULTATS', 14, y + 5.5);
+      y += 14;
+
+      // Score boxes
+      const boxes = [
+        { label: 'QCM (coef 1)', score: sc.qcmScore, max: 20 },
+        { label: 'Questions ouvertes (coef 2)', score: sc.openScore, max: 20 },
+        { label: 'Mise en situation (coef 3)', score: sc.practicalScore, max: 30 },
+      ];
+      const bW = (W - 28 - 8) / 3;
+      boxes.forEach((b, i) => {
+        const x = 14 + i * (bW + 4);
+        doc.setFillColor(...GREY);
+        doc.rect(x, y, bW, 20, 'F');
+        doc.setDrawColor(...YELLOW);
+        doc.setLineWidth(0.5);
+        doc.rect(x, y, bW, 20, 'S');
+        doc.setTextColor(...GREY_TEXT);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.text(b.label, x + bW/2, y + 5, { align: 'center' });
+        doc.setTextColor(...DARK);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(18);
+        doc.text(String(b.score), x + bW/2 - 5, y + 16, { align: 'right' });
+        doc.setFontSize(10);
+        doc.setTextColor(...GREY_TEXT);
+        doc.text('/' + b.max, x + bW/2 - 3, y + 16);
       });
-      lines.push('');
-    }
-    lines.push('DETAIL QCM');
-    lines.push('----------');
-    qcmA.forEach((a, i) => {
-      const q = qMap[a.question_id];
-      if (!q) return;
-      lines.push('Q' + (i+1) + ' [' + (a.is_correct ? 'OK' : 'KO') + '] ' + q.text.substring(0, 60) + '...');
-      lines.push('   Reponse : ' + a.answer_given.map(idx => q.answers[parseInt(idx)]).join(', '));
-      if (!a.is_correct) lines.push('   Correct : ' + q.correct.map(idx => q.answers[idx]).join(', '));
-    });
-    lines.push('');
-    lines.push('QUESTIONS OUVERTES');
-    lines.push('------------------');
-    openA.forEach((a, i) => {
-      const q = oMap[a.question_id];
-      if (!q) return;
-      lines.push('Q' + (i+1) + ' [' + (a.score !== null ? a.score + '/2' : 'Non note') + '] ' + q.text.substring(0, 60) + '...');
-      lines.push('   Reponse : ' + (a.answer_text || 'Aucune reponse'));
-      if (a.comment) lines.push('   Commentaire : ' + a.comment);
-    });
-    lines.push('');
-    lines.push('MISE EN SITUATION');
-    lines.push('-----------------');
-    if (practEval) {
-      lines.push('Note : ' + practEval.score + '/10');
-      if (practEval.comment) lines.push('Commentaire : ' + practEval.comment);
-    } else {
-      lines.push('Non evaluee');
-    }
-    
-    const text = lines.join('\n');
-    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'Rapport_' + cand.last_name + '_' + cand.first_name + '_' + dateStr.replace(/\//g, '-') + '.txt';
-    a.click();
-    URL.revokeObjectURL(url);
+      y += 26;
+
+      // Total bar
+      doc.setFillColor(...BLACK);
+      doc.rect(14, y, W - 28, 12, 'F');
+      doc.setTextColor(...WHITE);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(10);
+      doc.text('TOTAL', 20, y + 8);
+      doc.setTextColor(...YELLOW);
+      doc.setFontSize(12);
+      doc.text(sc.total + '/70', W - 20, y + 8, { align: 'right' });
+      doc.setFontSize(8);
+      doc.setTextColor(200, 200, 200);
+      doc.text(sc.passed ? 'Seuil atteint (42/70)' : 'Seuil non atteint (42/70)', W/2, y + 8, { align: 'center' });
+      y += 18;
+
+      // ── QCM SECTION ──
+      doc.setFillColor(...YELLOW);
+      doc.rect(0, y, W, 8, 'F');
+      doc.setTextColor(...BLACK);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.text('QCM — ' + sc.qcmScore + '/20', 14, y + 5.5);
+      y += 12;
+
+      qcmA.forEach((a, i) => {
+        const q = qMap[a.question_id];
+        if (!q) return;
+        if (y > 260) { doc.addPage(); y = 15; }
+        // Row bg
+        doc.setFillColor(a.is_correct ? 240 : 254, a.is_correct ? 253 : 226, a.is_correct ? 244 : 226);
+        doc.rect(14, y, W - 28, 10, 'F');
+        doc.setDrawColor(a.is_correct ? 34 : 239, a.is_correct ? 197 : 68, a.is_correct ? 94 : 68);
+        doc.setLineWidth(0.8);
+        doc.line(14, y, 14, y + 10);
+        doc.setTextColor(...DARK);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        const qLabel = 'Q' + (i+1) + '. ' + q.text.substring(0, 70) + (q.text.length > 70 ? '...' : '');
+        doc.text(qLabel, 17, y + 4.5);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(...GREY_TEXT);
+        const ans = a.answer_given.map(idx => q.answers[parseInt(idx)]).join(', ');
+        doc.text('Rep: ' + ans.substring(0, 80), 17, y + 8.5);
+        doc.setTextColor(a.is_correct ? 34 : 239, a.is_correct ? 197 : 68, a.is_correct ? 94 : 68);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.text(a.is_correct ? '✓' : '✗', W - 18, y + 6, { align: 'right' });
+        y += 12;
+      });
+
+      // ── OPEN QUESTIONS ──
+      if (y > 240) { doc.addPage(); y = 15; }
+      y += 4;
+      doc.setFillColor(...YELLOW);
+      doc.rect(0, y, W, 8, 'F');
+      doc.setTextColor(...BLACK);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.text('QUESTIONS OUVERTES — ' + sc.openScore + '/20', 14, y + 5.5);
+      y += 12;
+
+      openA.forEach((a, i) => {
+        const q = oMap[a.question_id];
+        if (!q) return;
+        if (y > 255) { doc.addPage(); y = 15; }
+        doc.setFillColor(...GREY);
+        doc.rect(14, y, W - 28, 28, 'F');
+        doc.setDrawColor(...YELLOW);
+        doc.setLineWidth(0.5);
+        doc.rect(14, y, W - 28, 28, 'S');
+        doc.setTextColor(...DARK);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7.5);
+        const qText = 'Q' + (i+1) + '. ' + q.text.substring(0, 75) + (q.text.length > 75 ? '...' : '');
+        doc.text(qText, 17, y + 5);
+        // Score badge
+        const scored = a.score !== null && a.score !== undefined;
+        doc.setFillColor(...(scored ? YELLOW : [200,200,200]));
+        doc.roundedRect(W - 38, y + 2, 22, 7, 1.5, 1.5, 'F');
+        doc.setTextColor(...BLACK);
+        doc.setFontSize(8);
+        doc.text(scored ? a.score + '/2' : 'N/A', W - 27, y + 6.5, { align: 'center' });
+        // Answer
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.setTextColor(...GREY_TEXT);
+        const ans = (a.answer_text || 'Aucune reponse').substring(0, 120);
+        const ansLines = doc.splitTextToSize(ans, W - 36);
+        doc.text(ansLines.slice(0, 2), 17, y + 12);
+        if (a.comment) {
+          doc.setTextColor(100, 100, 100);
+          doc.setFontSize(6.5);
+          doc.text('Commentaire: ' + a.comment.substring(0, 80), 17, y + 23);
+        }
+        y += 31;
+      });
+
+      // ── PRACTICAL EVAL ──
+      if (y > 240) { doc.addPage(); y = 15; }
+      y += 4;
+      doc.setFillColor(...YELLOW);
+      doc.rect(0, y, W, 8, 'F');
+      doc.setTextColor(...BLACK);
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9);
+      doc.text('MISE EN SITUATION — ' + sc.practicalScore + '/30', 14, y + 5.5);
+      y += 12;
+      doc.setFillColor(...GREY);
+      doc.rect(14, y, W - 28, 20, 'F');
+      if (practEval) {
+        doc.setTextColor(...DARK);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(14);
+        doc.text(practEval.score + '/10', 20, y + 13);
+        if (practEval.comment) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+          doc.setTextColor(...GREY_TEXT);
+          doc.text(practEval.comment.substring(0, 100), 45, y + 13);
+        }
+      } else {
+        doc.setTextColor(...GREY_TEXT);
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(9);
+        doc.text('Non evaluee', 20, y + 13);
+      }
+      y += 26;
+
+      // ── INFRACTIONS ──
+      if (infracs.length > 0) {
+        if (y > 250) { doc.addPage(); y = 15; }
+        doc.setFillColor(254, 226, 226);
+        doc.rect(14, y, W - 28, 8 + infracs.length * 6, 'F');
+        doc.setTextColor(239, 68, 68);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(9);
+        doc.text('INFRACTIONS (' + infracs.length + ')', 17, y + 6);
+        infracs.forEach((inf, i) => {
+          const t = inf.type === 'tab_switch' ? 'Changement onglet' : inf.type === 'fullscreen_exit' ? 'Sortie plein ecran' : 'Perte focus';
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7.5);
+          doc.setTextColor(...DARK);
+          doc.text('- ' + t + ' a ' + new Date(inf.occurred_at).toLocaleTimeString('fr-FR'), 17, y + 12 + i * 6);
+        });
+        y += 14 + infracs.length * 6;
+      }
+
+      // ── FOOTER ──
+      const totalPages = doc.internal.getNumberOfPages();
+      for (let p = 1; p <= totalPages; p++) {
+        doc.setPage(p);
+        doc.setFillColor(...BLACK);
+        doc.rect(0, H - 10, W, 10, 'F');
+        doc.setTextColor(...GREY_TEXT);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7);
+        doc.text('DOLY — Plateforme d'Evaluation', 14, H - 4);
+        doc.text('Page ' + p + '/' + totalPages, W - 14, H - 4, { align: 'right' });
+      }
+
+      // Save
+      const filename = 'Rapport_' + cand.last_name + '_' + cand.first_name + '_' + dateStr.replace(/\//g, '-') + '.pdf';
+      doc.save(filename);
+    };
+    document.head.appendChild(script);
   }
 
   return (
