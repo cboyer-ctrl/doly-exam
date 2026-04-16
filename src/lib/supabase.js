@@ -184,9 +184,9 @@ export async function staffLogin(username, password) {
     .from('staff_accounts')
     .select('*')
     .eq('username', username)
-    .eq('password', password)
     .single();
   if (error || !data) return null;
+  if (data.password !== password) return null;
   return data;
 }
 
