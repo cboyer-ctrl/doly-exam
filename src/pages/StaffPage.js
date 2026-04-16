@@ -415,7 +415,7 @@ function CandidateProfile({ profile, isDirecteur, onRefresh }) {
       doc.setFontSize(9);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(...GREY_TEXT);
-      doc.text('RAPPORT D'EVALUATION', 14, 20);
+      doc.text("RAPPORT D'EVALUATION", 14, 20);
       // Date top right
       const dateStr = new Date().toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
       doc.setFontSize(9);
@@ -443,7 +443,7 @@ function CandidateProfile({ profile, isDirecteur, onRefresh }) {
       if (cand.exam_started_at) {
         const start = new Date(cand.exam_started_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
         const end = cand.exam_finished_at ? new Date(cand.exam_finished_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '-';
-        doc.text('Examen : ' + start + ' → ' + end, 14, y + 13);
+        doc.text('Examen : ' + start + ' -> ' + end, 14, y + 13);
       }
       if (infracs.length > 0) {
         doc.setTextColor(239, 68, 68);
@@ -645,7 +645,7 @@ function CandidateProfile({ profile, isDirecteur, onRefresh }) {
         doc.setTextColor(...GREY_TEXT);
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7);
-        doc.text('DOLY — Plateforme d'Evaluation', 14, H - 4);
+        doc.text("DOLY - Plateforme d'Evaluation", 14, H - 4);
         doc.text('Page ' + p + '/' + totalPages, W - 14, H - 4, { align: 'right' });
       }
 
