@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext, useCallback } from 'react';
 import { AppContext } from '../App';
 import {
-  getBatches, createBatch, updateBatch, getBatchWithCandidates,
+  getBatches, createBatch, updateBatch, deleteBatch, getBatchWithCandidates,
   getCandidateFullProfile, gradeOpenAnswer, savePracticalEval, updateCandidate,
   computeScore
 } from '../lib/supabase';
@@ -137,9 +137,8 @@ function BatchList({ isDirecteur, onSelectBatch }) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
           {batches.length === 0 && <div className="card" style={{ textAlign: 'center', padding: '48px', color: 'var(--text-muted)' }}>Aucune session créée</div>}
           {batches.map(b => (
-            <div key={b.id} className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
-              onClick={() => onSelectBatch(b)}>
-              <div>
+            <div key={b.id} className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}>
+              <div style={{ flex: 1 }} onClick={() => onSelectBatch(b)}>
                 <div style={{ fontWeight: 600, fontSize: '16px', marginBottom: '4px' }}>{b.name}</div>
                 <div style={{ color: 'var(--text-muted)', fontSize: '13px' }}>
                   Créé le {new Date(b.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
@@ -148,7 +147,16 @@ function BatchList({ isDirecteur, onSelectBatch }) {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                 <span className={`badge badge-${statusBadge[b.status]}`}>{statusLabel[b.status]}</span>
-                <span style={{ color: 'var(--text-dim)' }}>→</span>
+                {b.status === 'pending' && (
+                  <button className="btn btn-danger btn-sm" onClick={async (e) => {
+                    e.stopPropagation();
+                    if (window.confirm(`Supprimer le batch "${b.name}" ?`)) {
+                      await deleteBatch(b.id);
+                      setBatches(prev => prev.filter(x => x.id !== b.id));
+                    }
+                  }}>🗑</button>
+                )}
+                <span style={{ color: 'var(--text-dim)' }} onClick={() => onSelectBatch(b)}>→</span>
               </div>
             </div>
           ))}
@@ -202,8 +210,25 @@ function BatchView({ batchId, isDirecteur, onSelectCandidate, onBatchUpdate }) {
     load();
   }
   async function handleArchive() {
+    if (!isDirecteur) return;
+    if (!window.confirm('Clôturer et archiver ce batch ? Action irréversible.')) return;
     await updateBatch(batchId, { status: 'archived', finished_at: new Date().toISOString() });
     load();
+  }
+
+  async function handleEndExam() {
+    if (!window.confirm('Terminer l'examen maintenant ? Tous les candidats encore en train de passer seront arrêtés.')) return;
+    for (const c of candidates.filter(c => c.status === 'exam')) {
+      await updateCandidate(c.id, { status: 'finished', exam_finished_at: new Date().toISOString() });
+    }
+    await updateBatch(batchId, { status: 'paused' });
+    load();
+  }
+
+  async function handleDeleteBatch() {
+    if (!window.confirm('Supprimer définitivement ce batch ?')) return;
+    await deleteBatch(batchId);
+    window.location.reload();
   }
 
   const statusColor = { pending: 'gray', active: 'green', paused: 'orange', archived: 'gray' };
@@ -220,11 +245,13 @@ function BatchView({ batchId, isDirecteur, onSelectCandidate, onBatchUpdate }) {
           </div>
         </div>
         {!isArchived && (
-          <div style={{ display: 'flex', gap: '8px' }}>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             {isPending && <button className="btn btn-primary" onClick={handleLaunch}>▶ Lancer l'examen</button>}
             {isActive && isDirecteur && <button className="btn btn-secondary" onClick={handlePause}>⏸ Pause</button>}
             {isPaused && isDirecteur && <button className="btn btn-primary" onClick={handleResume}>▶ Reprendre</button>}
-            {(isActive || isPaused) && <button className="btn btn-danger" onClick={handleArchive}>Terminer le batch</button>}
+            {isActive && <button className="btn btn-danger" onClick={handleEndExam}>⏹ Terminer l'examen</button>}
+            {isDirecteur && isPaused && <button className="btn btn-danger" onClick={handleArchive}>🗄 Clôturer le batch</button>}
+            {isDirecteur && isPending && <button className="btn btn-danger btn-sm" onClick={handleDeleteBatch}>🗑 Supprimer</button>}
           </div>
         )}
       </div>
