@@ -258,19 +258,52 @@ function BatchView({ batchId, isDirecteur, onSelectCandidate, onBatchUpdate }) {
 
       {/* Stats row */}
       <div className="grid-3" style={{ marginBottom: '24px' }}>
-        <StatCard label="En attente" value={candidates.filter(c => c.status === 'waiting').length} color="var(--text-muted)" />
+        <StatCard label="Demandes" value={candidates.filter(c => c.status === 'pending_approval').length} color="var(--orange)" />
         <StatCard label="En examen" value={candidates.filter(c => c.status === 'exam').length} color="var(--yellow)" />
         <StatCard label="Terminés" value={candidates.filter(c => c.status === 'finished').length} color="var(--green)" />
       </div>
 
+      {/* Pending approval requests */}
+      {candidates.filter(c => c.status === 'pending_approval').length > 0 && (
+        <div style={{ marginBottom: '24px' }}>
+          <h3 style={{ fontSize: '15px', marginBottom: '12px', color: 'var(--orange)' }}>
+            🔔 Demandes d'intégration en attente
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {candidates.filter(c => c.status === 'pending_approval').map(c => (
+              <div key={c.id} className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderColor: 'rgba(249,115,22,0.3)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                  <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'rgba(249,115,22,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: '13px', color: 'var(--orange)' }}>
+                    {c.first_name[0]}{c.last_name[0]}
+                  </div>
+                  <div style={{ fontWeight: 600 }}>{c.first_name} {c.last_name}</div>
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button className="btn btn-sm btn-danger" onClick={async (e) => {
+                    e.stopPropagation();
+                    await updateCandidate(c.id, { status: 'rejected' });
+                    load();
+                  }}>✗ Refuser</button>
+                  <button className="btn btn-sm btn-primary" onClick={async (e) => {
+                    e.stopPropagation();
+                    await updateCandidate(c.id, { status: 'waiting' });
+                    load();
+                  }}>✓ Accepter</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Candidates list */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-        {candidates.length === 0 && (
+        {candidates.filter(c => c.status !== 'pending_approval').length === 0 && candidates.filter(c => c.status === 'pending_approval').length === 0 && (
           <div className="card" style={{ textAlign: 'center', padding: '48px', color: 'var(--text-muted)' }}>
             Aucun candidat connecté à cette session
           </div>
         )}
-        {candidates.map(c => (
+        {candidates.filter(c => c.status !== 'pending_approval').map(c => (
           <CandidateRow key={c.id} candidate={c} isDirecteur={isDirecteur}
             onClick={async () => {
               const profile = await getCandidateFullProfile(c.id);
@@ -293,8 +326,8 @@ function StatCard({ label, value, color }) {
 }
 
 function CandidateRow({ candidate, isDirecteur, onClick }) {
-  const statusColor = { waiting: 'gray', exam: 'yellow', finished: 'green' };
-  const statusLabel = { waiting: '⏳ En attente', exam: '● En examen', finished: '✓ Terminé' };
+  const statusColor = { pending_approval: 'orange', rejected: 'red', waiting: 'gray', exam: 'yellow', finished: 'green' };
+  const statusLabel = { pending_approval: '⏳ Demande', rejected: '✗ Refusé', waiting: '⏳ En attente', exam: '● En examen', finished: '✓ Terminé' };
   return (
     <div className="card" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', cursor: 'pointer' }}
       onClick={onClick}>
@@ -356,6 +389,75 @@ function CandidateProfile({ profile, isDirecteur, onRefresh }) {
   const qcmQMap = Object.fromEntries(QCM_QUESTIONS.map(q => [q.id, q]));
   const openQMap = Object.fromEntries(OPEN_QUESTIONS.map(q => [q.id, q]));
 
+  function downloadPDF(cand, sc, qcmA, openA, practEval, qMap, oMap, infracs) {
+    const lines = [];
+    const d = new Date();
+    const dateStr = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    
+    lines.push('DOLY - RAPPORT D EVALUATION');
+    lines.push('===========================');
+    lines.push('');
+    lines.push('CANDIDAT : ' + cand.first_name + ' ' + cand.last_name);
+    lines.push('Date : ' + dateStr);
+    lines.push('Statut : ' + (cand.validated === true ? 'VALIDE' : 'NON VALIDE'));
+    lines.push('');
+    lines.push('SCORES');
+    lines.push('------');
+    lines.push('QCM (coef 1)              : ' + sc.qcmScore + '/20');
+    lines.push('Questions ouvertes (coef 2): ' + sc.openScore + '/20');
+    lines.push('Mise en situation (coef 3) : ' + sc.practicalScore + '/30');
+    lines.push('TOTAL                      : ' + sc.total + '/70');
+    lines.push('Seuil (42/70)              : ' + (sc.passed ? 'ATTEINT' : 'NON ATTEINT'));
+    lines.push('');
+    if (infracs.length > 0) {
+      lines.push('INFRACTIONS (' + infracs.length + ')');
+      lines.push('-----------');
+      infracs.forEach(inf => {
+        const t = inf.type === 'tab_switch' ? 'Changement onglet' : inf.type === 'fullscreen_exit' ? 'Sortie plein ecran' : 'Perte focus';
+        lines.push('- ' + t + ' a ' + new Date(inf.occurred_at).toLocaleTimeString('fr-FR'));
+      });
+      lines.push('');
+    }
+    lines.push('DETAIL QCM');
+    lines.push('----------');
+    qcmA.forEach((a, i) => {
+      const q = qMap[a.question_id];
+      if (!q) return;
+      lines.push('Q' + (i+1) + ' [' + (a.is_correct ? 'OK' : 'KO') + '] ' + q.text.substring(0, 60) + '...');
+      lines.push('   Reponse : ' + a.answer_given.map(idx => q.answers[parseInt(idx)]).join(', '));
+      if (!a.is_correct) lines.push('   Correct : ' + q.correct.map(idx => q.answers[idx]).join(', '));
+    });
+    lines.push('');
+    lines.push('QUESTIONS OUVERTES');
+    lines.push('------------------');
+    openA.forEach((a, i) => {
+      const q = oMap[a.question_id];
+      if (!q) return;
+      lines.push('Q' + (i+1) + ' [' + (a.score !== null ? a.score + '/2' : 'Non note') + '] ' + q.text.substring(0, 60) + '...');
+      lines.push('   Reponse : ' + (a.answer_text || 'Aucune reponse'));
+      if (a.comment) lines.push('   Commentaire : ' + a.comment);
+    });
+    lines.push('');
+    lines.push('MISE EN SITUATION');
+    lines.push('-----------------');
+    if (practEval) {
+      lines.push('Note : ' + practEval.score + '/10');
+      if (practEval.comment) lines.push('Commentaire : ' + practEval.comment);
+    } else {
+      lines.push('Non evaluee');
+    }
+    
+    const text = lines.join('
+');
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'Rapport_' + cand.last_name + '_' + cand.first_name + '_' + dateStr.replace(/\//g, '-') + '.txt';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div style={{ maxWidth: '900px' }}>
       {/* Header */}
@@ -393,13 +495,20 @@ function CandidateProfile({ profile, isDirecteur, onRefresh }) {
           )}
 
           {isDirecteur && candidate.status === 'finished' && (
-            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
               <button className="btn btn-sm"
                 style={{ background: candidate.validated === false ? 'rgba(239,68,68,0.2)' : 'var(--surface2)', border: `1px solid ${candidate.validated === false ? 'var(--red)' : 'var(--border)'}`, color: candidate.validated === false ? 'var(--red)' : 'var(--text-muted)' }}
-                onClick={() => handleValidate(false)}>✗ Non validé</button>
+                onClick={() => handleValidate(false)}>✗ Non valide</button>
               <button className="btn btn-sm"
                 style={{ background: candidate.validated === true ? 'rgba(34,197,94,0.2)' : 'var(--surface2)', border: `1px solid ${candidate.validated === true ? 'var(--green)' : 'var(--border)'}`, color: candidate.validated === true ? 'var(--green)' : 'var(--text-muted)' }}
-                onClick={() => handleValidate(true)}>✓ Validé</button>
+                onClick={() => handleValidate(true)}>✓ Valide</button>
+            </div>
+          )}
+          {candidate.status === 'finished' && candidate.validated !== null && candidate.validated !== undefined && (
+            <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'flex-end' }}>
+              <button className="btn btn-sm btn-secondary" onClick={() => downloadPDF(candidate, score, qcmAnswers, openAnswers, practicalEval, qcmQMap, openQMap, infractions)}>
+                ⬇ Telecharger PDF
+              </button>
             </div>
           )}
         </div>

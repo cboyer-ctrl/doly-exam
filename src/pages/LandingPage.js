@@ -1,6 +1,7 @@
 import React, { useState, useContext } from 'react';
 import { AppContext } from '../App';
 import { getBatches, getCandidateByName, createCandidate, createExamSession, getExamSession } from '../lib/supabase';
+import { supabase } from '../lib/supabase';
 import { staffLogin } from '../lib/supabase';
 import { drawQuestions } from '../data/questions';
 
@@ -72,6 +73,7 @@ function CandidateLogin({ setView }) {
   const [selectedBatch, setSelectedBatch] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [pendingCandidate, setPendingCandidate] = useState(null);
 
   async function handleSubmitName(e) {
     e.preventDefault();
@@ -93,26 +95,57 @@ function CandidateLogin({ setView }) {
     setLoading(true);
     setError('');
     try {
-      // Check if already registered
       let candidate = await getCandidateByName(batch.id, firstName, lastName);
       if (candidate && candidate.status === 'finished') {
-        setError("Vous avez déjà passé cet examen. Il n'est pas possible de repasser.");
+        setError("Vous avez deja passe cet examen. Il n'est pas possible de repasser.");
+        setLoading(false);
+        return;
+      }
+      if (candidate && candidate.status === 'rejected') {
+        setError("Votre demande a ete refusee par le formateur. Veuillez le contacter directement pour plus d'informations.");
         setLoading(false);
         return;
       }
       if (!candidate) {
         candidate = await createCandidate(batch.id, firstName.trim(), lastName.trim());
       }
-      // Draw questions
-      const fullName = `${firstName} ${lastName} ${batch.id}`;
+      if (candidate.status === 'pending_approval') {
+        setPendingCandidate(candidate);
+        setStep('waiting_approval');
+        setLoading(false);
+        // Listen for approval
+        const channel = supabase
+          .channel('candidate-approval-' + candidate.id)
+          .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'candidates', filter: 'id=eq.' + candidate.id },
+            async (payload) => {
+              const updated = payload.new;
+              if (updated.status === 'waiting') {
+                supabase.removeChannel(channel);
+                const fullName = firstName + ' ' + lastName + ' ' + batch.id;
+                const { qcm, open } = drawQuestions(fullName);
+                let session = await getExamSession(updated.id);
+                if (!session) {
+                  session = await createExamSession(updated.id, batch.id, qcm.map(q => q.id), open.map(q => q.id));
+                }
+                handleCandidateJoin({ candidate: updated, batch, session, qcmQuestions: qcm, openQuestions: open });
+              } else if (updated.status === 'rejected') {
+                supabase.removeChannel(channel);
+                setStep('batch');
+                setError("Votre demande a ete refusee par le formateur. Veuillez le contacter directement.");
+              }
+            })
+          .subscribe();
+        return;
+      }
+      // Already approved - join directly
+      const fullName = firstName + ' ' + lastName + ' ' + batch.id;
       const { qcm, open } = drawQuestions(fullName);
-      // Create or get session
       let session = await getExamSession(candidate.id);
       if (!session) {
         session = await createExamSession(candidate.id, batch.id, qcm.map(q => q.id), open.map(q => q.id));
       }
       handleCandidateJoin({ candidate, batch, session, qcmQuestions: qcm, openQuestions: open });
-    } catch (err) { setError("Erreur. Réessayez."); console.error(err); }
+    } catch (err) { setError("Erreur. Reessayez."); console.error(err); }
     setLoading(false);
   }
 
@@ -166,6 +199,22 @@ function CandidateLogin({ setView }) {
           </div>
           {error && <div className="alert alert-error mt-16">{error}</div>}
           {loading && <div style={{ textAlign: 'center', marginTop: '16px' }}><span className="spinner" /></div>}
+        </div>
+      )}
+
+      {step === 'waiting_approval' && (
+        <div style={{ textAlign: 'center', padding: '16px 0' }}>
+          <div style={{ fontSize: '48px', marginBottom: '16px' }}>⏳</div>
+          <h3 style={{ fontSize: '18px', marginBottom: '12px' }}>Demande envoyee</h3>
+          <p style={{ color: 'var(--text-muted)', fontSize: '14px', marginBottom: '24px', lineHeight: 1.6 }}>
+            Votre demande d'integration a ete envoyee au formateur.<br />
+            Vous serez automatiquement redirige des qu'il aura accepte votre demande.<br />
+            <strong style={{ color: 'var(--text)' }}>Ne fermez pas cette fenetre.</strong>
+          </p>
+          <div className="alert alert-info" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span className="pulse">●</span>
+            <span>En attente de validation par le formateur...</span>
+          </div>
         </div>
       )}
     </div>

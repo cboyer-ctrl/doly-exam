@@ -63,11 +63,22 @@ export async function getBatchWithCandidates(batchId) {
 export async function createCandidate(batchId, firstName, lastName) {
   const { data, error } = await supabase
     .from('candidates')
-    .insert({ batch_id: batchId, first_name: firstName, last_name: lastName, status: 'waiting' })
+    .insert({ batch_id: batchId, first_name: firstName, last_name: lastName, status: 'pending_approval' })
     .select()
     .single();
   if (error) throw error;
   return data;
+}
+
+export async function getPendingCandidates(batchId) {
+  const { data, error } = await supabase
+    .from('candidates')
+    .select('*')
+    .eq('batch_id', batchId)
+    .eq('status', 'pending_approval')
+    .order('created_at');
+  if (error) throw error;
+  return data || [];
 }
 
 export async function updateCandidate(id, updates) {
