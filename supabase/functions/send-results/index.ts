@@ -16,29 +16,37 @@ serve(async (req) => {
     )
     const resendKey = Deno.env.get('RESEND_API_KEY')!
 
-    const { data: candidates } = await supabase
+    const { data: candidates, error: candError } = await supabase
       .from('candidates')
       .select('*')
       .eq('batch_id', batchId)
       .eq('status', 'finished')
       .not('email', 'is', null)
 
+    if (candError) {
+      return new Response(JSON.stringify({ error: 'DB error', detail: candError.message }), { status: 500, headers: corsHeaders })
+    }
+
     const sent = []
+    const errors = []
+
     for (const cand of candidates || []) {
       const { data: session } = await supabase.from('exam_sessions').select('*').eq('candidate_id', cand.id).single()
       if (!session) continue
+
       const [{ data: qcmA }, { data: openA }, { data: practEval }] = await Promise.all([
         supabase.from('qcm_answers').select('*').eq('session_id', session.id),
         supabase.from('open_answers').select('*').eq('session_id', session.id),
         supabase.from('practical_evals').select('*').eq('session_id', session.id).maybeSingle()
       ])
+
       const qcmScore = (qcmA || []).filter((a: any) => a.is_correct).length
       const openScore = (openA || []).reduce((s: number, a: any) => s + (a.score || 0), 0)
       const practicalScore = practEval ? (practEval.score || 0) * 3 : 0
       const total = qcmScore + openScore + practicalScore
       const statusText = cand.validated === true ? 'VALIDE' : cand.validated === false ? 'NON VALIDE' : 'EN ATTENTE'
-      const statusColor = cand.validated === true ? '#155724' : cand.validated === false ? '#721c24' : '#856404'
       const statusBg = cand.validated === true ? '#d4edda' : cand.validated === false ? '#f8d7da' : '#fff3cd'
+      const statusColor = cand.validated === true ? '#155724' : cand.validated === false ? '#721c24' : '#856404'
 
       const html = `<div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
         <div style="background:#000;padding:24px;text-align:center"><span style="color:#FFD100;font-size:28px;font-weight:bold">DOLY</span></div>
@@ -55,18 +63,29 @@ serve(async (req) => {
           </div>
           <div style="background:${statusBg};border-radius:6px;padding:12px;text-align:center;font-weight:bold;color:${statusColor}">${statusText}</div>
         </div>
-        <div style="background:#000;padding:16px;text-align:center;color:#888;font-size:12px">DOLY — Plateforme Evaluation</div>
+        <div style="background:#000;padding:16px;text-align:center;color:#888;font-size:12px">DOLY - Plateforme Evaluation</div>
       </div>`
 
-      const res = await fetch('https://api.resend.com/emails', {
+      const resendRes = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: 'DOLY Evaluation <onboarding@resend.dev>', to: [cand.email], subject: 'Votre resultat - Evaluation DOLY', html })
+        body: JSON.stringify({
+          from: 'DOLY Evaluation <onboarding@resend.dev>',
+          to: [cand.email],
+          subject: 'Votre resultat - Evaluation DOLY',
+          html
+        })
       })
-      if (res.ok) sent.push(cand.email)
+
+      const resendData = await resendRes.json()
+      if (resendRes.ok) {
+        sent.push(cand.email)
+      } else {
+        errors.push({ email: cand.email, error: resendData })
+      }
     }
 
-    return new Response(JSON.stringify({ sent, total: candidates?.length || 0 }), {
+    return new Response(JSON.stringify({ sent, total: candidates?.length || 0, errors }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' }
     })
   } catch (e) {

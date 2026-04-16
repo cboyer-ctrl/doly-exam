@@ -104,6 +104,9 @@ function ExamScreen({ session, candidate, batch, qcmQuestions, openQuestions, on
   const [batchPaused, setBatchPaused] = useState(batch.status === 'paused');
   const timerRef = useRef(null);
   const pausedRef = useRef(batchPaused);
+  const startTimeRef = useRef(Date.now());
+  const pausedElapsedRef = useRef(0);
+  const pauseStartRef = useRef(null);
 
   // Fullscreen + anti-cheat
   useEffect(() => {
@@ -138,6 +141,14 @@ function ExamScreen({ session, candidate, batch, qcmQuestions, openQuestions, on
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'batches', filter: `id=eq.${batch.id}` },
         (payload) => {
           const paused = payload.new.status === 'paused';
+          if (paused && !pausedRef.current) {
+            // Starting pause - record when pause started
+            pauseStartRef.current = Date.now();
+          } else if (!paused && pausedRef.current && pauseStartRef.current) {
+            // Ending pause - add paused duration to elapsed offset
+            pausedElapsedRef.current += Math.floor((Date.now() - pauseStartRef.current) / 1000);
+            pauseStartRef.current = null;
+          }
           setBatchPaused(paused);
           pausedRef.current = paused;
         })
@@ -145,16 +156,19 @@ function ExamScreen({ session, candidate, batch, qcmQuestions, openQuestions, on
     return () => supabase.removeChannel(channel);
   }, [batch.id]);
 
-  // Timer
+  // Timer - uses wall clock to be throttle-resistant
   useEffect(() => {
+    startTimeRef.current = Date.now();
     timerRef.current = setInterval(() => {
-      if (!pausedRef.current) {
-        setTimeLeft(t => {
-          if (t <= 1) { clearInterval(timerRef.current); handleSubmit(true); return 0; }
-          return t - 1;
-        });
+      if (pausedRef.current) return;
+      const elapsed = Math.floor((Date.now() - startTimeRef.current) / 1000) - pausedElapsedRef.current;
+      const remaining = Math.max(0, EXAM_DURATION - elapsed);
+      setTimeLeft(remaining);
+      if (remaining <= 0) {
+        clearInterval(timerRef.current);
+        handleSubmit(true);
       }
-    }, 1000);
+    }, 500);
     return () => clearInterval(timerRef.current);
   }, []);
 
