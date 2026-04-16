@@ -133,7 +133,10 @@ end $$;
 -- directeur → @dIR3CT3UR_!
 -- ═══════════════════════════════════════════════════
 
+-- Mots de passe hashés SHA-256 :
+-- formateur → D0LyMaT3UR_
+-- directeur → @dIR3CT3UR_!
 insert into staff_accounts (username, password_hash, role) values
-  ('formateur', '$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy', 'formateur'),
-  ('directeur', '$2a$10$ruF3jjVRSFPB.9p4B.K8yOXHEFYPjQ5JTJlvJv1N6YGjC4Y8SbOL2', 'directeur')
+  ('formateur', 'a355d0b83f4ea1adaad9719e456e85d6a70f725203a06ca32c881c905941750e', 'formateur'),
+  ('directeur', 'c7fdef6e4778b730765fe98a3ee790bffd7e9207f82e52891d25b31e70db5f2c', 'directeur')
 on conflict (username) do nothing;

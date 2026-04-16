@@ -174,6 +174,13 @@ export async function logInfraction(sessionId, type) {
 }
 
 // ─── STAFF AUTH ────────────────────────────────────────────
+async function sha256(message) {
+  const msgBuffer = new TextEncoder().encode(message);
+  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
 export async function staffLogin(username, password) {
   const { data, error } = await supabase
     .from('staff_accounts')
@@ -182,10 +189,8 @@ export async function staffLogin(username, password) {
     .single();
   if (error || !data) return null;
 
-  // Dynamic import bcryptjs
-  const bcrypt = await import('bcryptjs');
-  const valid = await bcrypt.compare(password, data.password_hash);
-  if (!valid) return null;
+  const hash = await sha256(password);
+  if (hash !== data.password_hash) return null;
   return data;
 }
 
