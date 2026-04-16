@@ -25,6 +25,11 @@ export async function createBatch(name) {
   return data;
 }
 
+export async function deleteBatch(id) {
+  const { error } = await supabase.from('batches').delete().eq('id', id);
+  if (error) throw error;
+}
+
 export async function updateBatch(id, updates) {
   const { data, error } = await supabase
     .from('batches')
@@ -174,23 +179,14 @@ export async function logInfraction(sessionId, type) {
 }
 
 // ─── STAFF AUTH ────────────────────────────────────────────
-async function sha256(message) {
-  const msgBuffer = new TextEncoder().encode(message);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', msgBuffer);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
 export async function staffLogin(username, password) {
   const { data, error } = await supabase
     .from('staff_accounts')
     .select('*')
     .eq('username', username)
+    .eq('password', password)
     .single();
   if (error || !data) return null;
-
-  const hash = await sha256(password);
-  if (hash !== data.password_hash) return null;
   return data;
 }
 
