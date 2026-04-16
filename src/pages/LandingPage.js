@@ -66,9 +66,10 @@ function RoleCard({ icon, title, desc, onClick, primary }) {
 
 function CandidateLogin({ setView }) {
   const { handleCandidateJoin } = useContext(AppContext);
-  const [step, setStep] = useState('form'); // form | batch | waiting
+  const [step, setStep] = useState('form'); // form | batch | waiting_approval
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
+  const [email, setEmail] = useState('');
   const [batches, setBatches] = useState([]);
   const [selectedBatch, setSelectedBatch] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -77,16 +78,32 @@ function CandidateLogin({ setView }) {
 
   async function handleSubmitName(e) {
     e.preventDefault();
-    if (!firstName.trim() || !lastName.trim()) return;
+    if (!firstName.trim() || !lastName.trim() || !email.trim()) return;
+    // Validate doly.me domain
+    if (!email.toLowerCase().endsWith('@doly.me')) {
+      setError("Adresse email invalide. Vous devez utiliser votre adresse @doly.me.");
+      return;
+    }
     setLoading(true);
     setError('');
     try {
+      // Verify email exists via DNS MX check (lightweight)
+      const domain = email.split('@')[1];
+      try {
+        const res = await fetch('https://dns.google/resolve?name=' + domain + '&type=MX');
+        const data = await res.json();
+        if (!data.Answer || data.Answer.length === 0) {
+          setError("Cette adresse email ne semble pas valide. Contactez votre formateur.");
+          setLoading(false);
+          return;
+        }
+      } catch { /* DNS check failed silently - continue */ }
       const allBatches = await getBatches();
       const active = allBatches.filter(b => b.status === 'pending' || b.status === 'active' || b.status === 'paused');
-      if (active.length === 0) { setError("Aucune session d'examen disponible actuellement. Contactez votre formateur."); setLoading(false); return; }
+      if (active.length === 0) { setError("Aucune session disponible. Contactez votre formateur."); setLoading(false); return; }
       setBatches(active);
       setStep('batch');
-    } catch { setError("Erreur de connexion. Réessayez."); }
+    } catch { setError("Erreur de connexion. Reessayez."); }
     setLoading(false);
   }
 
@@ -107,7 +124,7 @@ function CandidateLogin({ setView }) {
         return;
       }
       if (!candidate) {
-        candidate = await createCandidate(batch.id, firstName.trim(), lastName.trim());
+        candidate = await createCandidate(batch.id, firstName.trim(), lastName.trim(), email.trim());
       }
       if (candidate.status === 'pending_approval') {
         setPendingCandidate(candidate);
@@ -160,9 +177,14 @@ function CandidateLogin({ setView }) {
             <label className="label">Prénom</label>
             <input className="input" value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="Votre prénom" autoFocus />
           </div>
-          <div className="mb-24">
+          <div className="mb-16">
             <label className="label">Nom</label>
             <input className="input" value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Votre nom" />
+          </div>
+          <div className="mb-24">
+            <label className="label">Adresse email DOLY</label>
+            <input className="input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="prenom.nom@doly.me" />
+            <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '6px' }}>Utilisez uniquement votre adresse @doly.me</div>
           </div>
           {error && <div className="alert alert-error mb-16">{error}</div>}
           <button type="submit" className="btn btn-primary w-full btn-lg" disabled={loading}>

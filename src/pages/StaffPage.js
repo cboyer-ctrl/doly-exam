@@ -3,7 +3,7 @@ import { AppContext } from '../App';
 import {
   getBatches, createBatch, updateBatch, deleteBatch, getBatchWithCandidates,
   getCandidateFullProfile, gradeOpenAnswer, savePracticalEval, updateCandidate,
-  computeScore
+  computeScore, sendBatchResults
 } from '../lib/supabase';
 import { supabase } from '../lib/supabase';
 import { QCM_QUESTIONS, OPEN_QUESTIONS } from '../data/questions';
@@ -211,8 +211,20 @@ function BatchView({ batchId, isDirecteur, onSelectCandidate, onBatchUpdate }) {
   }
   async function handleArchive() {
     if (!isDirecteur) return;
-    if (!window.confirm("Clôturer et archiver ce batch ? Action irréversible.")) return;
+    if (!window.confirm("Cloturer et archiver ce batch ? Les resultats seront envoyes par email aux candidats.")) return;
     await updateBatch(batchId, { status: 'archived', finished_at: new Date().toISOString() });
+    // Send results by email
+    try {
+      const result = await sendBatchResults(batchId);
+      if (result.sent.length > 0) {
+        alert('Batch cloture. Resultats envoyes a ' + result.sent.length + ' candidat(s).');
+      } else {
+        alert('Batch cloture. Aucun email envoye (aucun candidat avec adresse email renseignee).');
+      }
+    } catch (e) {
+      console.error('Email send error:', e);
+      alert('Batch cloture mais erreur lors de envoi des emails.');
+    }
     load();
   }
 
@@ -226,9 +238,25 @@ function BatchView({ batchId, isDirecteur, onSelectCandidate, onBatchUpdate }) {
   }
 
   async function handleDeleteBatch() {
-    if (!window.confirm("Supprimer définitivement ce batch ?")) return;
-    await deleteBatch(batchId);
-    window.location.reload();
+    if (!window.confirm("Supprimer definitivement ce batch et tous ses candidats ?")) return;
+    try {
+      // Delete all related records first to avoid FK constraints
+      const { data: sessions } = await supabase.from('exam_sessions').select('id').eq('batch_id', batchId);
+      if (sessions && sessions.length > 0) {
+        const sIds = sessions.map(s => s.id);
+        await supabase.from('qcm_answers').delete().in('session_id', sIds);
+        await supabase.from('open_answers').delete().in('session_id', sIds);
+        await supabase.from('practical_evals').delete().in('session_id', sIds);
+        await supabase.from('infractions').delete().in('session_id', sIds);
+        await supabase.from('exam_sessions').delete().eq('batch_id', batchId);
+      }
+      await supabase.from('candidates').delete().eq('batch_id', batchId);
+      await deleteBatch(batchId);
+      window.location.reload();
+    } catch (err) {
+      console.error('Delete batch error:', err);
+      alert('Erreur lors de la suppression. Reessayez.');
+    }
   }
 
   const statusColor = { pending: 'gray', active: 'green', paused: 'orange', archived: 'gray' };
