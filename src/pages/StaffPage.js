@@ -3,7 +3,7 @@ import { AppContext } from '../App';
 import {
   getBatches, createBatch, updateBatch, deleteBatch, getBatchWithCandidates,
   getCandidateFullProfile, gradeOpenAnswer, savePracticalEval, updateCandidate,
-  computeScore, sendBatchResults
+  computeScore
 } from '../lib/supabase';
 import { supabase } from '../lib/supabase';
 import { QCM_QUESTIONS, OPEN_QUESTIONS } from '../data/questions';
@@ -211,20 +211,8 @@ function BatchView({ batchId, isDirecteur, onSelectCandidate, onBatchUpdate }) {
   }
   async function handleArchive() {
     if (!isDirecteur) return;
-    if (!window.confirm("Cloturer et archiver ce batch ? Les resultats seront envoyes par email aux candidats.")) return;
+    if (!window.confirm("Cloturer et archiver ce batch ? Action irreversible.")) return;
     await updateBatch(batchId, { status: 'archived', finished_at: new Date().toISOString() });
-    // Send results by email
-    try {
-      const result = await sendBatchResults(batchId);
-      if (result.sent.length > 0) {
-        alert('Batch cloture. Resultats envoyes a ' + result.sent.length + ' candidat(s).');
-      } else {
-        alert('Batch cloture. Aucun email envoye (aucun candidat avec adresse email renseignee).');
-      }
-    } catch (e) {
-      console.error('Email send error:', e);
-      alert('Batch cloture mais erreur lors de envoi des emails.');
-    }
     load();
   }
 
